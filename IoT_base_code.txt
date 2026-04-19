@@ -1,0 +1,204 @@
+# Step 1: Environment Setup & Library Imports
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+import joblib
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, ConfusionMatrixDisplay
+
+# This line checks if your data folder is connected correctly
+print("Files found in data folder:", os.listdir(' ENTER YOUR data(data1/data2) FOLDER HERE'))
+device_name = ' ENTER YOUR DEVICE FOLDER NAME HERE '
+
+
+# Step 2: Data Loading and Sampling
+
+# Load the files from your 'data' folder
+df_benign = pd.read_csv(f'data2/{device_name}/benign_traffic.csv').head(5000)
+df_attack = pd.read_csv(f'data2/{device_name}/udpplain.csv').head(5000)
+
+print(f"Successfully loaded {len(df_benign)} benign rows and {len(df_attack)} attack rows.")
+print(f"Now analyzing: {device_name}")
+
+pd.set_option('display.max_columns', None)
+df_benign.head()
+
+# Step 3: Data Labeling, Merging, and Shuffling
+
+# Create the labels
+df_benign['is_botnet'] = 0
+df_attack['is_botnet'] = 1
+
+# Merge both into one single table
+df_combined = pd.concat([df_benign, df_attack], axis=0).reset_index(drop=True)
+
+# Shuffle the data so the AI doesn't see all zeros then all ones
+df_combined = df_combined.sample(frac=1).reset_index(drop=True)
+
+print("Dataset is merged and labeled. Total rows:", len(df_combined))
+
+# Step 4: Class Distribution Visualization
+
+plt.figure(figsize=(6,4))
+sns.countplot(x='is_botnet', data=df_combined, hue='is_botnet', palette='viridis') 
+plt.title('Distribution: Normal (0) vs. Botnet (1)')
+plt.xticks([0, 1], ['Benign (0)', 'Botnet (1)'])
+plt.show()
+
+# Step 5: Feature Selection & Data Splitting
+
+# Select features (all columns except the label) and the target label
+X = df_combined.drop('is_botnet', axis=1)
+y = df_combined['is_botnet']
+
+# Split: 70% for training, 30% for testing
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.9, random_state=42)
+
+print(f"Data split complete.")
+print(f"Training rows: {X_train.shape[0]}")
+print(f"Testing rows: {X_test.shape[0]}")
+
+# Step 6: Model Initialization and Training
+
+# Initialize the Random Forest
+model = RandomForestClassifier(n_estimators=10, max_depth=2, random_state=42)
+
+# Train the model
+model.fit(X_train, y_train)
+
+print("AI Model Training Complete!")
+
+# Step 7: Model Evaluation & Visual Proof
+from sklearn.metrics import accuracy_score, classification_report, ConfusionMatrixDisplay
+
+#Predict on the test data
+y_pred = model.predict(X_test)
+
+#Calculate the accuracy score and store it in a variable
+current_accuracy = accuracy_score(y_test, y_pred)
+
+#Print accuracy report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+#Display visual proof
+ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, cmap='Blues')
+
+print(f"Accuracy Score: {current_accuracy:.4f}")
+
+plt.title("Botnet Detection Accuracy Results")
+plt.show()
+# Step 8: Model Deployment & Persistence
+
+import joblib
+joblib.dump(model, 'botnet_detector.pkl')
+print("Model saved successfully as 'botnet_detector.pkl'")
+
+# Step 9: Model Loading & Real-Time Inference Simulation
+
+# Load the model back to prove it was saved correctly
+loaded_model = joblib.dump(model, 'botnet_detector.pkl') # Use joblib.load if restarting
+test_sample = X_test.iloc[0:1] # Take one row of network traffic
+prediction = model.predict(test_sample)
+
+if prediction[0] == 1:
+    print("ALERT: Botnet Activity Detected!")
+else:
+    print("STATUS: Network Traffic is Normal.")
+
+# Step 10: Feature Importance (The "Red Flags")
+
+importances = model.feature_importances_
+feature_names = X.columns
+feat_imp = pd.Series(importances, index=feature_names).sort_values(ascending=False)
+
+# Plot the top 10 features
+feat_imp.head(10).plot(kind='barh', color='orange')
+plt.title("Top 10 Indicators of Botnet Behavior")
+plt.show()
+
+# Step 11: Density Distribution Analysis
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# We select the most important feature found 
+feature_to_plot = 'H_L1_mean'
+
+plt.figure(figsize=(10, 6))
+
+# Plotting the distribution for Benign traffic
+sns.kdeplot(df_combined[df_combined['is_botnet'] == 0][feature_to_plot], 
+            label='Normal Activity', fill=True, color='green')
+
+# Plotting the distribution for Botnet traffic
+sns.kdeplot(df_combined[df_combined['is_botnet'] == 1][feature_to_plot], 
+            label='Botnet Attack', fill=True, color='red')
+
+plt.title(f'Difference in Traffic Pattern: {feature_to_plot}')
+plt.xlabel('Feature Value (Log Scale recommended for high variance)')
+plt.ylabel('Density')
+plt.legend()
+plt.show()
+
+# Step 12: Randomized Verification
+
+# Pick 5 random rows
+random_samples = X_test.sample(5)
+
+# Predict for all 5
+predictions = model.predict(random_samples)
+
+# Get the actual labels for all 5
+actual_labels = y_test.loc[random_samples.index].values
+
+print(f"--- Testing 5 Random Samples ---")
+
+# Loop through each sample to show the result
+for i in range(5):
+    status = "SUCCESS" if predictions[i] == actual_labels[i] else "FAILURE"
+    pred_text = "BOTNET" if predictions[i] == 1 else "NORMAL"
+    true_text = "BOTNET" if actual_labels[i] == 1 else "NORMAL"
+
+    print(f"Sample {i+1}: AI Predicted {pred_text} | Actual was {true_text} -> {status}")
+
+
+# Cross-Malware Test Analysis
+import joblib
+from sklearn.metrics import accuracy_score
+
+# 1. Load the model you saved from the Mirai notebook
+loaded_model = joblib.load('botnet_detector.pkl')
+
+# 2. Test on the Bashlite data (X_test from this notebook)
+y_transfer_pred = loaded_model.predict(X_test)
+
+# 3. Get the score
+transfer_acc = accuracy_score(y_test, y_transfer_pred)
+print(f"Test Result - Cross-Malware Accuracy: {transfer_acc*100:.2f}%")
+
+import joblib
+joblib.dump(model, 'bashlite_detector.pkl')
+print("Bashlite model saved successfully!")
+
+# Performance Metrics
+import time
+
+# Select 1000 random samples to get a very accurate average
+samples = X_test.sample(1000)
+
+start_time = time.perf_counter()
+model.predict(samples) # Predict 1000 packets at once
+end_time = time.perf_counter()
+
+# Calculate time per single packet in milliseconds
+total_time_ms = (end_time - start_time) * 1000
+latency_per_packet = total_time_ms / 1000
+
+print(f"--- PERFORMANCE METRICS ---")
+print(f"Total time for 1000 packets: {total_time_ms:.4f} ms")
+print(f"Inference Latency per packet: {latency_per_packet:.6f} ms")
